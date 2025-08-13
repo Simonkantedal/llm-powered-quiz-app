@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Jetbrains IDEs
+.idea/
+
+# Python
+.python-version
+
+# Gemini
+gemini.md
