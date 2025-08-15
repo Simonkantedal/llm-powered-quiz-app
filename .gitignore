@@ -28,3 +28,7 @@ quiz_app.db
 
 # Logs
 *.log
+
+# Formatting and linting
+.ruff_cache/
+.pre-commit-config.yaml.bak
