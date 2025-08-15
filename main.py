@@ -1,79 +1,204 @@
+import json
+import logging
 import os
 import sqlite3
-import json
 import uuid
-import logging
-from typing import Dict, List, Any, Optional, Tuple
-from flask import Flask, request, jsonify, send_from_directory
-from flask_cors import CORS
+from typing import Any
+
+import google.generativeai as genai
 from dotenv import load_dotenv
+from flask import Flask, jsonify, request, send_from_directory
+from flask_cors import CORS
 
 # Load environment variables
 load_dotenv()
 
-app = Flask(__name__, static_folder='.', static_url_path='')
+app = Flask(__name__, static_folder=".", static_url_path="")
 CORS(app)
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('quiz_app.log'),
-        logging.StreamHandler()
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler("quiz_app.log"), logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
 
-DATABASE = os.getenv('DATABASE_PATH', 'quiz_app.db')
-DEBUG_MODE = os.getenv('DEBUG_MODE', 'False').lower() == 'true'
-PORT = int(os.getenv('PORT', '5001'))
-HOST = os.getenv('HOST', '127.0.0.1')
+DATABASE = os.getenv("DATABASE_PATH", "quiz_app.db")
+DEBUG_MODE = os.getenv("DEBUG_MODE", "False").lower() == "true"
+PORT = int(os.getenv("PORT", "5001"))
+HOST = os.getenv("HOST", "127.0.0.1")
 
-# Placeholder for LLM call. Replace with your actual implementation.
+# Configure Google Gemini API
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+
+if GOOGLE_API_KEY:
+    genai.configure(api_key=GOOGLE_API_KEY)
+    logger.info(f"Gemini API configured with model: {GEMINI_MODEL}")
+else:
+    logger.warning("GOOGLE_API_KEY not found - LLM grading will use fallback logic")
+
+
 def call_llm_for_grading(question: str, ideal_answer: str, user_answer: str) -> int:
     """
-    Placeholder function for LLM-based grading.
-    
-    Currently returns 1 (correct) for all answers as a placeholder.
-    Replace this with actual LLM integration (OpenAI, Gemini, Anthropic, etc.).
-    
+    Grade a quiz answer using Google's Gemini LLM.
+
     Args:
         question: The quiz question text
         ideal_answer: The expected correct answer
         user_answer: The user's submitted answer
-    
+
     Returns:
         int: 1 for correct answer, 0 for incorrect
     """
     try:
         logger.info(f"Grading question: {question[:50]}...")
-        
-        # TODO: Replace with actual LLM implementation
-        # Example implementation structure:
-        # prompt = f"Grade this answer. Question: '{question}' Expected: '{ideal_answer}' User answer: '{user_answer}' Return 1 for correct, 0 for incorrect."
-        # response = llm_client.generate(prompt)
-        # return int(response.strip()) if response.strip() in ['0', '1'] else 0
-        
-        # Placeholder: always return correct (1) for testing
-        # You can change this logic temporarily for testing
-        return 1
-        
+
+        # Check if API key is configured
+        if not GOOGLE_API_KEY:
+            logger.warning("No Google API key - using fallback grading")
+            return _fallback_grading(ideal_answer, user_answer)
+
+        # Create the model
+        model = genai.GenerativeModel(GEMINI_MODEL)
+
+        # Create a detailed prompt for grading
+        prompt = f"""You are an expert quiz grader. Your task is to determine if a student's answer is correct or incorrect.
+
+        Question: {question}
+
+        Ideal/Expected Answer: {ideal_answer}
+
+        Student's Answer: {user_answer}
+
+        Instructions:
+        - Compare the student's answer with the ideal answer
+        - Consider semantic meaning, not just exact word matching
+        - Allow for reasonable variations in phrasing, synonyms, and alternative correct explanations
+        - Be fair but maintain academic standards
+        - For numerical answers, accept equivalent forms (e.g., 0.5 = 1/2 = 50%)
+        - For factual questions, the core facts must be correct
+        - For explanatory answers, key concepts must be present
+
+        Respond with ONLY:
+        - "1" if the answer is correct or substantially correct
+        - "0" if the answer is incorrect or substantially wrong
+
+        Your response:"""
+
+        # Generate response
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(
+                temperature=0.1,  # Low temperature for consistent grading
+                max_output_tokens=10,  # We only need "1" or "0"
+                top_p=0.8,
+                top_k=1,
+            ),
+        )
+
+        # Extract and validate the result
+        result = response.text.strip()
+        logger.info(f"Gemini response: '{result}' for question: {question[:30]}...")
+
+        # Parse the response
+        if result == "1":
+            return 1
+        elif result == "0":
+            return 0
+        else:
+            # If response is not exactly "1" or "0", try to extract it
+            if "1" in result and "0" not in result:
+                logger.warning(
+                    f"Gemini returned non-standard response, interpreting as correct: {result}"
+                )
+                return 1
+            elif "0" in result and "1" not in result:
+                logger.warning(
+                    f"Gemini returned non-standard response, interpreting as incorrect: {result}"
+                )
+                return 0
+            else:
+                logger.error(
+                    f"Gemini returned ambiguous response: {result}. Using fallback."
+                )
+                return _fallback_grading(ideal_answer, user_answer)
+
     except Exception as e:
-        logger.error(f"Error in LLM grading: {e}")
+        logger.error(f"Error calling Gemini API: {e}")
+        # Fallback to simple keyword matching
+        return _fallback_grading(ideal_answer, user_answer)
+
+
+def _fallback_grading(ideal_answer: str, user_answer: str) -> int:
+    """
+    Fallback grading method when LLM is unavailable.
+    Uses simple keyword matching as a backup.
+
+    Args:
+        ideal_answer: The expected correct answer
+        user_answer: The user's submitted answer
+
+    Returns:
+        int: 1 for likely correct, 0 for likely incorrect
+    """
+    if not user_answer.strip():
         return 0
+
+    # Convert to lowercase for comparison
+    ideal_words = set(ideal_answer.lower().split())
+    user_words = set(user_answer.lower().split())
+
+    # Remove common stop words that don't contribute to meaning
+    stop_words = {
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+    }
+    ideal_words = ideal_words - stop_words
+    user_words = user_words - stop_words
+
+    if not ideal_words:  # If ideal answer only had stop words
+        return 1 if user_words else 0
+
+    # Calculate overlap percentage
+    overlap = len(ideal_words & user_words)
+    overlap_percentage = overlap / len(ideal_words)
+
+    # Consider it correct if at least 60% of meaningful words match
+    return 1 if overlap_percentage >= 0.6 else 0
 
 
 def get_db() -> sqlite3.Connection:
     """
     Get database connection with row factory for easier access.
-    
+
     Returns:
         sqlite3.Connection: Database connection object
     """
     db = sqlite3.connect(DATABASE)
     db.row_factory = sqlite3.Row
     return db
+
 
 def init_db() -> None:
     """
@@ -82,16 +207,16 @@ def init_db() -> None:
     with app.app_context():
         db = get_db()
         cursor = db.cursor()
-        
+
         # Create tables
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS quizzes (
                 quiz_id TEXT PRIMARY KEY,
                 questions TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        ''')
-        cursor.execute('''
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS submissions (
                 submission_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 quiz_id TEXT NOT NULL,
@@ -100,105 +225,121 @@ def init_db() -> None:
                 submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (quiz_id) REFERENCES quizzes (quiz_id)
             )
-        ''')
-        
+        """)
+
         # Create indexes for better performance
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_quiz_id ON submissions(quiz_id)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON quizzes(created_at)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_submitted_at ON submissions(submitted_at)')
-        
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_quiz_id ON submissions(quiz_id)")
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_created_at ON quizzes(created_at)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_submitted_at ON submissions(submitted_at)"
+        )
+
         db.commit()
         logger.info("Database initialized successfully")
 
-def validate_quiz_data(data: Dict[str, Any]) -> Tuple[bool, str]:
+
+def validate_quiz_data(data: dict[str, Any]) -> tuple[bool, str]:
     """
     Validate quiz creation data.
-    
+
     Args:
         data: Request data dictionary
-    
+
     Returns:
-        Tuple of (is_valid, error_message)
+        tuple of (is_valid, error_message)
     """
-    if not data or 'questions' not in data:
+    if not data or "questions" not in data:
         return False, "Invalid data: missing 'questions' field"
-    
-    questions = data['questions']
+
+    questions = data["questions"]
     if not isinstance(questions, list) or len(questions) == 0:
         return False, "Questions must be a non-empty list"
-    
+
     if len(questions) > 50:  # Reasonable limit
         return False, "Too many questions (max 50)"
-    
+
     for i, question in enumerate(questions):
         if not isinstance(question, dict):
-            return False, f"Question {i+1} must be an object"
-        
-        if 'question' not in question or 'ideal_answer' not in question:
-            return False, f"Question {i+1} missing required fields"
-        
-        if not isinstance(question['question'], str) or not question['question'].strip():
-            return False, f"Question {i+1} text is invalid"
-        
-        if not isinstance(question['ideal_answer'], str) or not question['ideal_answer'].strip():
-            return False, f"Question {i+1} ideal answer is invalid"
-        
-        if len(question['question']) > 1000:
-            return False, f"Question {i+1} text too long (max 1000 chars)"
-        
-        if len(question['ideal_answer']) > 2000:
-            return False, f"Question {i+1} ideal answer too long (max 2000 chars)"
-    
+            return False, f"Question {i + 1} must be an object"
+
+        if "question" not in question or "ideal_answer" not in question:
+            return False, f"Question {i + 1} missing required fields"
+
+        if (
+            not isinstance(question["question"], str)
+            or not question["question"].strip()
+        ):
+            return False, f"Question {i + 1} text is invalid"
+
+        if (
+            not isinstance(question["ideal_answer"], str)
+            or not question["ideal_answer"].strip()
+        ):
+            return False, f"Question {i + 1} ideal answer is invalid"
+
+        if len(question["question"]) > 1000:
+            return False, f"Question {i + 1} text too long (max 1000 chars)"
+
+        if len(question["ideal_answer"]) > 2000:
+            return False, f"Question {i + 1} ideal answer too long (max 2000 chars)"
+
     return True, ""
 
-def validate_quiz_submission(data: Dict[str, Any], expected_count: int) -> Tuple[bool, str]:
+
+def validate_quiz_submission(
+    data: dict[str, Any], expected_count: int
+) -> tuple[bool, str]:
     """
     Validate quiz submission data.
-    
+
     Args:
         data: Request data dictionary
         expected_count: Expected number of answers
-    
+
     Returns:
-        Tuple of (is_valid, error_message)
+        tuple of (is_valid, error_message)
     """
-    if not data or 'answers' not in data:
+    if not data or "answers" not in data:
         return False, "Invalid submission data: missing 'answers' field"
-    
-    answers = data['answers']
+
+    answers = data["answers"]
     if not isinstance(answers, list):
         return False, "Answers must be a list"
-    
+
     if len(answers) != expected_count:
         return False, f"Expected {expected_count} answers, got {len(answers)}"
-    
+
     for i, answer in enumerate(answers):
         if not isinstance(answer, str):
-            return False, f"Answer {i+1} must be a string"
-        
+            return False, f"Answer {i + 1} must be a string"
+
         if len(answer) > 5000:
-            return False, f"Answer {i+1} too long (max 5000 chars)"
-    
+            return False, f"Answer {i + 1} too long (max 5000 chars)"
+
     return True, ""
 
-@app.route('/')
+
+@app.route("/")
 def serve_index():
     """
     Serve the main index.html file.
     """
-    return send_from_directory('.', 'index.html')
+    return send_from_directory(".", "index.html")
 
-@app.route('/api/create_quiz', methods=['POST'])
+
+@app.route("/api/create_quiz", methods=["POST"])
 def create_quiz():
     """
     Create a new quiz with validated questions.
-    
+
     Returns:
         JSON response with quiz_id or error message
     """
     try:
         data = request.get_json()
-        
+
         # Validate input
         is_valid, error_msg = validate_quiz_data(data)
         if not is_valid:
@@ -206,31 +347,32 @@ def create_quiz():
             return jsonify({"error": error_msg}), 400
 
         quiz_id = str(uuid.uuid4())[:8]
-        questions = json.dumps(data['questions'])
+        questions = json.dumps(data["questions"])
 
         db = get_db()
         cursor = db.cursor()
         cursor.execute(
-            'INSERT INTO quizzes (quiz_id, questions) VALUES (?, ?)', 
-            (quiz_id, questions)
+            "INSERT INTO quizzes (quiz_id, questions) VALUES (?, ?)",
+            (quiz_id, questions),
         )
         db.commit()
-        
+
         logger.info(f"Quiz created successfully: {quiz_id}")
         return jsonify({"quiz_id": quiz_id})
-        
+
     except Exception as e:
         logger.error(f"Error creating quiz: {e}")
         return jsonify({"error": "Internal server error"}), 500
 
-@app.route('/api/get_quiz/<quiz_id>', methods=['GET'])
+
+@app.route("/api/get_quiz/<quiz_id>", methods=["GET"])
 def get_quiz(quiz_id: str):
     """
     Retrieve quiz questions by quiz ID (without ideal answers).
-    
+
     Args:
         quiz_id: The unique quiz identifier
-    
+
     Returns:
         JSON response with questions or error message
     """
@@ -238,17 +380,14 @@ def get_quiz(quiz_id: str):
         # Validate quiz_id format
         if not quiz_id or len(quiz_id) > 50:  # Reasonable limit
             return jsonify({"error": "Invalid quiz ID"}), 400
-        
+
         db = get_db()
         cursor = db.cursor()
-        cursor.execute(
-            'SELECT questions FROM quizzes WHERE quiz_id = ?', 
-            (quiz_id,)
-        )
+        cursor.execute("SELECT questions FROM quizzes WHERE quiz_id = ?", (quiz_id,))
         row = cursor.fetchone()
 
         if row:
-            questions_data = json.loads(row['questions'])
+            questions_data = json.loads(row["questions"])
             # Return only the questions, not the ideal answers
             questions_for_user = [{"question": q["question"]} for q in questions_data]
             logger.info(f"Quiz retrieved: {quiz_id}")
@@ -256,7 +395,7 @@ def get_quiz(quiz_id: str):
         else:
             logger.warning(f"Quiz not found: {quiz_id}")
             return jsonify({"error": "Quiz not found"}), 404
-            
+
     except json.JSONDecodeError:
         logger.error(f"Corrupted quiz data for ID: {quiz_id}")
         return jsonify({"error": "Corrupted quiz data"}), 500
@@ -264,14 +403,15 @@ def get_quiz(quiz_id: str):
         logger.error(f"Error retrieving quiz {quiz_id}: {e}")
         return jsonify({"error": "Internal server error"}), 500
 
-@app.route('/api/submit_quiz/<quiz_id>', methods=['POST'])
+
+@app.route("/api/submit_quiz/<quiz_id>", methods=["POST"])
 def submit_quiz(quiz_id: str):
     """
     Submit quiz answers for grading.
-    
+
     Args:
         quiz_id: The unique quiz identifier
-    
+
     Returns:
         JSON response with score or error message
     """
@@ -279,54 +419,53 @@ def submit_quiz(quiz_id: str):
         # Validate quiz_id format
         if not quiz_id or len(quiz_id) > 50:
             return jsonify({"error": "Invalid quiz ID"}), 400
-        
+
         data = request.get_json()
-        
+
         db = get_db()
         cursor = db.cursor()
-        cursor.execute(
-            'SELECT questions FROM quizzes WHERE quiz_id = ?', 
-            (quiz_id,)
-        )
+        cursor.execute("SELECT questions FROM quizzes WHERE quiz_id = ?", (quiz_id,))
         row = cursor.fetchone()
 
         if not row:
             logger.warning(f"Quiz submission attempt for non-existent quiz: {quiz_id}")
             return jsonify({"error": "Quiz not found"}), 404
 
-        stored_questions = json.loads(row['questions'])
+        stored_questions = json.loads(row["questions"])
         total_questions = len(stored_questions)
-        
+
         # Validate submission data
         is_valid, error_msg = validate_quiz_submission(data, total_questions)
         if not is_valid:
             logger.warning(f"Invalid quiz submission for {quiz_id}: {error_msg}")
             return jsonify({"error": error_msg}), 400
-        
-        user_answers = data['answers']
+
+        user_answers = data["answers"]
         score = 0
-        
+
         for i, stored_q in enumerate(stored_questions):
-            question_text = stored_q['question']
-            ideal_answer_text = stored_q['ideal_answer']
+            question_text = stored_q["question"]
+            ideal_answer_text = stored_q["ideal_answer"]
             user_answer_text = user_answers[i]
 
             # Grade the answer using the LLM
-            grade = call_llm_for_grading(question_text, ideal_answer_text, user_answer_text)
+            grade = call_llm_for_grading(
+                question_text, ideal_answer_text, user_answer_text
+            )
             if grade == 1:
                 score += 1
 
         # Store the submission
         answers_json = json.dumps(user_answers)
         cursor.execute(
-            'INSERT INTO submissions (quiz_id, answers, score) VALUES (?, ?, ?)',
-            (quiz_id, answers_json, score)
+            "INSERT INTO submissions (quiz_id, answers, score) VALUES (?, ?, ?)",
+            (quiz_id, answers_json, score),
         )
         db.commit()
-        
+
         logger.info(f"Quiz submitted: {quiz_id}, Score: {score}/{total_questions}")
         return jsonify({"score": score, "total": total_questions})
-        
+
     except json.JSONDecodeError:
         logger.error(f"Corrupted quiz data for submission: {quiz_id}")
         return jsonify({"error": "Corrupted quiz data"}), 500
@@ -334,7 +473,8 @@ def submit_quiz(quiz_id: str):
         logger.error(f"Error submitting quiz {quiz_id}: {e}")
         return jsonify({"error": "Internal server error"}), 500
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     init_db()
     logger.info(f"Starting quiz app on {HOST}:{PORT} (debug={DEBUG_MODE})")
     # For production, use a WSGI server like Gunicorn or Waitress
