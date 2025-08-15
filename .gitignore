@@ -17,3 +17,14 @@ wheels/
 
 # Gemini
 gemini.md
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Database
+quiz_app.db
+
+# Logs
+*.log

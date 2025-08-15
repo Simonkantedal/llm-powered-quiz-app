@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM-Powered Quiz App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .view { display: none; }
+        .active-view { display: block; }
+        @import url('https://rsms.me/inter/inter.css');
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 flex items-center justify-center min-h-screen">
+
+    <div class="container mx-auto p-8 max-w-2xl bg-white rounded-xl shadow-lg">
+
+        <!-- Initial View -->
+        <div id="initial-view" class="active-view">
+            <h1 class="text-4xl font-bold mb-8 text-center text-gray-700">Quiz App</h1>
+            
+            <!-- Take Quiz Section -->
+            <div class="mb-12 p-6 border rounded-lg">
+                <h2 class="text-2xl font-semibold mb-4">Take a Quiz</h2>
+                <div class="flex space-x-4">
+                    <input type="text" id="quiz-id-input" placeholder="Enter Quiz ID" class="flex-grow p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    <button id="start-quiz-btn" class="bg-blue-500 text-white px-6 py-2 rounded-md hover:bg-blue-600 transition">Start Quiz</button>
+                </div>
+            </div>
+
+            <!-- Create Quiz Section -->
+            <div class="p-6 border rounded-lg">
+                <h2 class="text-2xl font-semibold mb-4">Create a Quiz</h2>
+                <p class="mb-4 text-gray-600">Click the button below to start creating a new quiz.</p>
+                <button id="show-create-quiz-view-btn" class="w-full bg-green-500 text-white px-6 py-3 rounded-md hover:bg-green-600 transition">Create New Quiz</button>
+            </div>
+        </div>
+
+        <!-- Create Quiz View -->
+        <div id="create-quiz-view" class="view">
+            <h2 class="text-3xl font-bold mb-6">Create a New Quiz</h2>
+            <div id="questions-container">
+                <!-- Question 1 -->
+                <div class="question-item mb-6 p-4 border rounded-lg">
+                    <h3 class="text-xl font-semibold mb-3">Question 1</h3>
+                    <div class="mb-3">
+                        <label class="block text-gray-700 mb-1">Question:</label>
+                        <textarea class="w-full p-2 border rounded-md question-input" placeholder="e.g., What is the capital of France?"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 mb-1">Ideal Answer:</label>
+                        <textarea class="w-full p-2 border rounded-md ideal-answer-input" placeholder="e.g., Paris"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="flex justify-between items-center mt-6">
+                <button id="add-question-btn" class="bg-gray-200 text-gray-700 px-5 py-2 rounded-md hover:bg-gray-300 transition">+ Add Another Question</button>
+                <button id="create-quiz-btn" class="bg-green-500 text-white px-8 py-3 rounded-md hover:bg-green-600 transition font-semibold">Create Quiz</button>
+            </div>
+             <button id="back-to-main-from-create" class="text-blue-500 hover:underline mt-6">&larr; Back to Main</button>
+        </div>
+        
+        <!-- Quiz Created View -->
+        <div id="quiz-created-view" class="view text-center">
+            <h2 class="text-3xl font-bold mb-4 text-green-600">Quiz Created Successfully!</h2>
+            <p class="text-lg mb-4">Share this Quiz ID with others:</p>
+            <div class="bg-gray-200 text-2xl font-mono p-4 rounded-lg inline-block" id="new-quiz-id"></div>
+            <button id="back-to-main-from-created" class="block mx-auto bg-blue-500 text-white px-6 py-2 rounded-md hover:bg-blue-600 transition mt-8">Back to Main Menu</button>
+        </div>
+
+
+        <!-- Take Quiz View -->
+        <div id="take-quiz-view" class="view">
+            <h2 id="quiz-question" class="text-2xl font-semibold mb-4"></h2>
+            <textarea id="user-answer-input" class="w-full p-3 border rounded-md" rows="6" placeholder="Your answer..."></textarea>
+            <div class="flex justify-end mt-6">
+                <button id="next-question-btn" class="bg-blue-500 text-white px-8 py-2 rounded-md hover:bg-blue-600 transition">Next</button>
+                <button id="submit-quiz-btn" class="bg-green-500 text-white px-8 py-2 rounded-md hover:bg-green-600 transition hidden">Submit</button>
+            </div>
+             <button id="back-to-main-from-take" class="text-blue-500 hover:underline mt-6">&larr; Back to Main</button>
+        </div>
+
+        <!-- Results View -->
+        <div id="results-view" class="view text-center">
+            <h2 class="text-3xl font-bold mb-4">Quiz Complete!</h2>
+            <p class="text-5xl font-bold text-blue-600" id="final-score"></p>
+            <button id="back-to-main-from-results" class="block mx-auto bg-blue-500 text-white px-6 py-2 rounded-md hover:bg-blue-600 transition mt-8">Take Another Quiz</button>
+        </div>
+
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const views = {
+                initial: document.getElementById('initial-view'),
+                create: document.getElementById('create-quiz-view'),
+                created: document.getElementById('quiz-created-view'),
+                take: document.getElementById('take-quiz-view'),
+                results: document.getElementById('results-view'),
+            };
+
+            const showView = (viewName) => {
+                Object.values(views).forEach(v => v.classList.remove('active-view'));
+                views[viewName].classList.add('active-view');
+            };
+            
+            // Back buttons logic
+            document.getElementById('back-to-main-from-create').addEventListener('click', () => showView('initial'));
+            document.getElementById('back-to-main-from-created').addEventListener('click', () => showView('initial'));
+            document.getElementById('back-to-main-from-take').addEventListener('click', () => showView('initial'));
+            document.getElementById('back-to-main-from-results').addEventListener('click', () => showView('initial'));
+
+
+            // --- Create Quiz Logic ---
+            const createQuizBtn = document.getElementById('create-quiz-btn');
+            const addQuestionBtn = document.getElementById('add-question-btn');
+            const questionsContainer = document.getElementById('questions-container');
+            const showCreateQuizViewBtn = document.getElementById('show-create-quiz-view-btn');
+            
+            let questionCount = 1;
+
+            showCreateQuizViewBtn.addEventListener('click', () => showView('create'));
+
+            addQuestionBtn.addEventListener('click', () => {
+                questionCount++;
+                const newQuestion = document.createElement('div');
+                newQuestion.className = 'question-item mb-6 p-4 border rounded-lg';
+                newQuestion.innerHTML = `
+                    <h3 class="text-xl font-semibold mb-3">Question ${questionCount}</h3>
+                    <div class="mb-3">
+                        <label class="block text-gray-700 mb-1">Question:</label>
+                        <textarea class="w-full p-2 border rounded-md question-input" placeholder="e.g., What is the capital of France?"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 mb-1">Ideal Answer:</label>
+                        <textarea class="w-full p-2 border rounded-md ideal-answer-input" placeholder="e.g., Paris"></textarea>
+                    </div>
+                `;
+                questionsContainer.appendChild(newQuestion);
+            });
+
+            createQuizBtn.addEventListener('click', async () => {
+                const questions = [];
+                document.querySelectorAll('.question-item').forEach(item => {
+                    const question = item.querySelector('.question-input').value.trim();
+                    const ideal_answer = item.querySelector('.ideal-answer-input').value.trim();
+                    if (question && ideal_answer) {
+                        questions.push({ question, ideal_answer });
+                    }
+                });
+
+                if (questions.length === 0) {
+                    alert('Please add at least one question.');
+                    return;
+                }
+
+                try {
+                    const response = await fetch('/api/create_quiz', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ questions })
+                    });
+                    const data = await response.json();
+                    if (response.ok) {
+                        document.getElementById('new-quiz-id').textContent = data.quiz_id;
+                        showView('created');
+                    } else {
+                        alert(`Error: ${data.error}`);
+                    }
+                } catch (error) {
+                    alert('An error occurred while creating the quiz.');
+                    console.error(error);
+                }
+            });
+
+            // --- Take Quiz Logic ---
+            const startQuizBtn = document.getElementById('start-quiz-btn');
+            const quizQuestionEl = document.getElementById('quiz-question');
+            const userAnswerInput = document.getElementById('user-answer-input');
+            const nextQuestionBtn = document.getElementById('next-question-btn');
+            const submitQuizBtn = document.getElementById('submit-quiz-btn');
+
+            let currentQuiz = {
+                id: null,
+                questions: [],
+                userAnswers: [],
+                currentQuestionIndex: 0,
+            };
+
+            startQuizBtn.addEventListener('click', async () => {
+                const quizId = document.getElementById('quiz-id-input').value.trim();
+                if (!quizId) {
+                    alert('Please enter a Quiz ID.');
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`/api/get_quiz/${quizId}`);
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        currentQuiz = {
+                            id: quizId,
+                            questions: data.questions,
+                            userAnswers: [],
+                            currentQuestionIndex: 0,
+                        };
+                        displayCurrentQuestion();
+                        showView('take');
+                    } else {
+                        alert(`Error: ${data.error}`);
+                    }
+                } catch (error) {
+                    alert('An error occurred while fetching the quiz.');
+                    console.error(error);
+                }
+            });
+
+            const displayCurrentQuestion = () => {
+                const question = currentQuiz.questions[currentQuiz.currentQuestionIndex];
+                quizQuestionEl.textContent = `Question ${currentQuiz.currentQuestionIndex + 1}: ${question.question}`;
+                userAnswerInput.value = '';
+
+                if (currentQuiz.currentQuestionIndex === currentQuiz.questions.length - 1) {
+                    nextQuestionBtn.classList.add('hidden');
+                    submitQuizBtn.classList.remove('hidden');
+                } else {
+                    nextQuestionBtn.classList.remove('hidden');
+                    submitQuizBtn.classList.add('hidden');
+                }
+            };
+
+            nextQuestionBtn.addEventListener('click', () => {
+                currentQuiz.userAnswers.push(userAnswerInput.value.trim());
+                currentQuiz.currentQuestionIndex++;
+                if (currentQuiz.currentQuestionIndex < currentQuiz.questions.length) {
+                    displayCurrentQuestion();
+                }
+            });
+
+            submitQuizBtn.addEventListener('click', async () => {
+                currentQuiz.userAnswers.push(userAnswerInput.value.trim());
+
+                try {
+                    const response = await fetch(`/api/submit_quiz/${currentQuiz.id}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ answers: currentQuiz.userAnswers })
+                    });
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        document.getElementById('final-score').textContent = `You scored ${data.score} out of ${data.total}`;
+                        showView('results');
+                    } else {
+                        alert(`Error: ${data.error}`);
+                    }
+                } catch (error) {
+                    alert('An error occurred while submitting the quiz.');
+                    console.error(error);
+                }
+            });
+        });
+    </script>
+</body>
+</html>
