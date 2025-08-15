@@ -10,3 +10,57 @@ dependencies = [
     "google-generativeai",
     "python-dotenv>=1.0.0",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8.0",
+    "pre-commit>=3.0.0",
+]
+
+[tool.ruff]
+# Enable pycodestyle (`E`) and Pyflakes (`F`) codes by default
+lint.select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # Pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "TCH",  # flake8-type-checking
+]
+lint.ignore = [
+    "E501",  # Line too long (handled by formatter)
+]
+
+# Same as Black
+line-length = 88
+indent-width = 4
+
+[tool.ruff.format]
+# Use single quotes for strings
+quote-style = "double"
+# Indent with spaces, rather than tabs
+indent-style = "space"
+# Respect magic trailing commas
+skip-magic-trailing-comma = false
+# Automatically detect the appropriate line ending
+line-ending = "auto"
+
+[tool.ruff.lint.isort]
+# Organize imports
+combine-as-imports = true
+split-on-trailing-comma = true
+
+[tool.ruff.lint.per-file-ignores]
+# Allow print statements in main.py for now
+"main.py" = ["T201"]
+
+[project.scripts]
+# Development scripts
+lint = "ruff check ."
+format = "ruff format ."
+lint-fix = "ruff check --fix ."
+check = "ruff check . && ruff format --check ."
