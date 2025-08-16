@@ -244,13 +244,19 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🔮 Roadmap
 
-- [ ] User authentication and accounts
+- [ ] User authentication system (Kahoot-style login, no need to create an account)
+- [ ] Migrate database to PostgreSQL
+- [ ] Different quiz types (present answer directly or not, multiple choice)
+- [ ] Admin dashboard for quiz management
+- [ ] Save user quiz results in database
+- [ ] Admin dashboard for quiz management
+- [ ] User profiles and history
+- [ ] Production deployment configuration
+- [ ] Rate limiting and abuse prevention
 - [ ] Quiz analytics and reporting
-- [ ] Multiple choice question support
-- [ ] Team collaboration features
 - [ ] Public quiz library
-- [ ] Mobile app
-- [ ] Advanced AI grading options
+- [ ] Security enhancements (HTTPS, secret management)
+- [ ] Performance optimizations and caching
 
 ---
 

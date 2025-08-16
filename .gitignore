@@ -32,3 +32,8 @@ quiz_app.db
 # Formatting and linting
 .ruff_cache/
 .pre-commit-config.yaml.bak
+
+# Session files
+cookies.txt
+cookies*.txt
+flask_session/
