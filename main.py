@@ -6,7 +6,13 @@ import sqlite3
 import uuid
 from typing import Any
 
-import google.generativeai as genai
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+    genai = None
+
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
@@ -34,11 +40,14 @@ HOST = os.getenv("HOST", "127.0.0.1")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 
-if GOOGLE_API_KEY:
+if GOOGLE_API_KEY and GEMINI_AVAILABLE:
     genai.configure(api_key=GOOGLE_API_KEY)
     logger.info(f"Gemini API configured with model: {GEMINI_MODEL}")
 else:
-    logger.warning("GOOGLE_API_KEY not found - LLM grading will use fallback logic")
+    if not GEMINI_AVAILABLE:
+        logger.warning("Google Generative AI not installed - LLM grading will use fallback logic")
+    else:
+        logger.warning("GOOGLE_API_KEY not found - LLM grading will use fallback logic")
 
 
 def detect_prompt_injection(text: str) -> bool:
@@ -111,10 +120,9 @@ def detect_prompt_injection(text: str) -> bool:
     word_count = sum(1 for word in instruction_words if word in text_lower)
 
     # If too many instruction-related words, likely an injection attempt
-    if word_count >= 3 and len(text.split()) < 50:  # High density of instruction words
-        return True
-
-    return False
+    return (
+        word_count >= 3 and len(text.split()) < 50
+    )  # High density of instruction words
 
 
 def sanitize_user_input(text: str) -> str:
@@ -169,9 +177,12 @@ def call_llm_for_grading(question: str, ideal_answer: str, user_answer: str) -> 
     try:
         logger.info(f"Grading question: {question[:50]}...")
 
-        # Check if API key is configured
-        if not GOOGLE_API_KEY:
-            logger.warning("No Google API key - using fallback grading")
+        # Check if API key is configured and library is available
+        if not GOOGLE_API_KEY or not GEMINI_AVAILABLE:
+            if not GEMINI_AVAILABLE:
+                logger.warning("Google Generative AI not available - using fallback grading")
+            else:
+                logger.warning("No Google API key - using fallback grading")
             return _fallback_grading(ideal_answer, user_answer)
 
         # Sanitize and validate user input
@@ -372,15 +383,26 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS submissions (
                 submission_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 quiz_id TEXT NOT NULL,
+                user_id TEXT,
+                user_name TEXT,
                 answers TEXT NOT NULL,
                 score INTEGER NOT NULL,
                 submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (quiz_id) REFERENCES quizzes (quiz_id)
             )
         """)
+        
+        # Add user_name column if it doesn't exist (migration)
+        try:
+            cursor.execute("ALTER TABLE submissions ADD COLUMN user_name TEXT")
+            logger.info("Added user_name column to submissions table")
+        except sqlite3.OperationalError:
+            # Column already exists, which is fine
+            pass
 
         # Create indexes for better performance
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_quiz_id ON submissions(quiz_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_id ON submissions(user_id)")
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_created_at ON quizzes(created_at)"
         )
@@ -462,6 +484,21 @@ def validate_quiz_submission(
 
     if len(answers) != expected_count:
         return False, f"Expected {expected_count} answers, got {len(answers)}"
+
+    # Validate optional user fields
+    if (
+        "user_id" in data
+        and data["user_id"] is not None
+        and (not isinstance(data["user_id"], str) or len(data["user_id"]) > 100)
+    ):
+        return False, "Invalid user_id format"
+
+    if (
+        "user_name" in data
+        and data["user_name"] is not None
+        and (not isinstance(data["user_name"], str) or len(data["user_name"]) > 200)
+    ):
+        return False, "Invalid user_name format"
 
     for i, answer in enumerate(answers):
         if not isinstance(answer, str):
@@ -597,6 +634,8 @@ def submit_quiz(quiz_id: str):
             return jsonify({"error": error_msg}), 400
 
         user_answers = data["answers"]
+        user_id = data.get("user_id")
+        user_name = data.get("user_name")
         score = 0
 
         for i, stored_q in enumerate(stored_questions):
@@ -611,11 +650,11 @@ def submit_quiz(quiz_id: str):
             if grade == 1:
                 score += 1
 
-        # Store the submission
+        # Store the submission with user data
         answers_json = json.dumps(user_answers)
         cursor.execute(
-            "INSERT INTO submissions (quiz_id, answers, score) VALUES (?, ?, ?)",
-            (quiz_id, answers_json, score),
+            "INSERT INTO submissions (quiz_id, user_id, user_name, answers, score) VALUES (?, ?, ?, ?, ?)",
+            (quiz_id, user_id, user_name, answers_json, score),
         )
         db.commit()
 

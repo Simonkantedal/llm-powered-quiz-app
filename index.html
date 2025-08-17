@@ -23,9 +23,12 @@
             <!-- Take Quiz Section -->
             <div class="mb-12 p-6 border rounded-lg">
                 <h2 class="text-2xl font-semibold mb-4">Take a Quiz</h2>
-                <div class="flex space-x-4">
-                    <input type="text" id="quiz-id-input" placeholder="Enter Quiz ID" class="flex-grow p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none">
-                    <button id="start-quiz-btn" class="bg-blue-500 text-white px-6 py-2 rounded-md hover:bg-blue-600 transition">Start Quiz</button>
+                <div class="space-y-3">
+                    <input type="text" id="user-name-input" placeholder="Enter your name or team name" class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none" required>
+                    <div class="flex space-x-4">
+                        <input type="text" id="quiz-id-input" placeholder="Enter Quiz ID" class="flex-grow p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        <button id="start-quiz-btn" class="bg-blue-500 text-white px-6 py-2 rounded-md hover:bg-blue-600 transition">Start Quiz</button>
+                    </div>
                 </div>
             </div>
 
@@ -186,10 +189,18 @@
                 questions: [],
                 userAnswers: [],
                 currentQuestionIndex: 0,
+                userName: null,
             };
 
             startQuizBtn.addEventListener('click', async () => {
                 const quizId = document.getElementById('quiz-id-input').value.trim();
+                const userName = document.getElementById('user-name-input').value.trim();
+                
+                if (!userName) {
+                    alert('Please enter your name or team name.');
+                    return;
+                }
+                
                 if (!quizId) {
                     alert('Please enter a Quiz ID.');
                     return;
@@ -205,6 +216,7 @@
                             questions: data.questions,
                             userAnswers: [],
                             currentQuestionIndex: 0,
+                            userName: userName,
                         };
                         displayCurrentQuestion();
                         showView('take');
@@ -246,7 +258,10 @@
                     const response = await fetch(`/api/submit_quiz/${currentQuiz.id}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ answers: currentQuiz.userAnswers })
+                        body: JSON.stringify({ 
+                            answers: currentQuiz.userAnswers,
+                            user_name: currentQuiz.userName
+                        })
                     });
                     const data = await response.json();
 
