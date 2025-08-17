@@ -6,12 +6,7 @@ import sqlite3
 import uuid
 from typing import Any
 
-try:
-    import google.generativeai as genai
-    GEMINI_AVAILABLE = True
-except ImportError:
-    GEMINI_AVAILABLE = False
-    genai = None
+import google.generativeai as genai
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_from_directory
@@ -40,14 +35,11 @@ HOST = os.getenv("HOST", "127.0.0.1")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 
-if GOOGLE_API_KEY and GEMINI_AVAILABLE:
+if GOOGLE_API_KEY:
     genai.configure(api_key=GOOGLE_API_KEY)
     logger.info(f"Gemini API configured with model: {GEMINI_MODEL}")
 else:
-    if not GEMINI_AVAILABLE:
-        logger.warning("Google Generative AI not installed - LLM grading will use fallback logic")
-    else:
-        logger.warning("GOOGLE_API_KEY not found - LLM grading will use fallback logic")
+    logger.warning("GOOGLE_API_KEY not found - LLM grading will use fallback logic")
 
 
 def detect_prompt_injection(text: str) -> bool:
@@ -177,12 +169,9 @@ def call_llm_for_grading(question: str, ideal_answer: str, user_answer: str) -> 
     try:
         logger.info(f"Grading question: {question[:50]}...")
 
-        # Check if API key is configured and library is available
-        if not GOOGLE_API_KEY or not GEMINI_AVAILABLE:
-            if not GEMINI_AVAILABLE:
-                logger.warning("Google Generative AI not available - using fallback grading")
-            else:
-                logger.warning("No Google API key - using fallback grading")
+        # Check if API key is configured
+        if not GOOGLE_API_KEY:
+            logger.warning("No Google API key - using fallback grading")
             return _fallback_grading(ideal_answer, user_answer)
 
         # Sanitize and validate user input
